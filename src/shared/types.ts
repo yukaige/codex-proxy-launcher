@@ -11,8 +11,10 @@ export interface CodexProxyConfig {
 }
 
 export type CodexRuntimeType = 'electron' | 'codex_chromium' | 'unknown'
+export type AppPlatform = 'macos' | 'windows'
 
 export interface CodexAppInfo {
+  platform?: AppPlatform
   installed: boolean
   appPath?: string
   executablePath?: string

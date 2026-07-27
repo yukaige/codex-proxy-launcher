@@ -1,0 +1,55 @@
+name: Build Windows portable EXE
+
+on:
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to upload the EXE to
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate sources
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build portable executable without an installer
+        run: npm run dist:windows
+
+      - name: Upload EXE to the GitHub release
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $asset = "Codex-Proxy-Launcher-$env:RELEASE_TAG-windows-x64.exe"
+          Copy-Item "src-tauri\target\release\codex-proxy-launcher.exe" $asset
+          gh release upload $env:RELEASE_TAG $asset --clobber

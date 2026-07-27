@@ -1,11 +1,13 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::core::{validate_app_path, validate_config};
 use crate::types::CodexProxyConfig;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 #[derive(Clone)]
 pub struct SettingsStore {
@@ -71,6 +73,7 @@ impl SettingsStore {
             .parent()
             .ok_or_else(|| "配置目录无效。".to_string())?;
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
         fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
             .map_err(|error| error.to_string())?;
         let temporary = self.file_path.with_extension("json.tmp");
@@ -79,6 +82,7 @@ impl SettingsStore {
             serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?
         );
         fs::write(&temporary, text).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
         fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))
             .map_err(|error| error.to_string())?;
         fs::rename(temporary, &self.file_path).map_err(|error| error.to_string())
