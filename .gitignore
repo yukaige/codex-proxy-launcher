@@ -1,7 +1,14 @@
 node_modules/
 dist/
-dist-electron/
 release/
+src-tauri/target/
+src-tauri/gen/schemas/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/[0-9]*.png
+src-tauri/icons/Square*.png
+src-tauri/icons/StoreLogo.png
+src-tauri/icons/icon.ico
 .DS_Store
 *.log
 coverage/

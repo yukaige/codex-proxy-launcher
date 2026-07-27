@@ -81,6 +81,7 @@ export interface CodexProxyApi {
   detectCodex(): Promise<CodexAppInfo>
   chooseCodex(): Promise<CodexAppInfo>
   testProxy(config: CodexProxyConfig): Promise<ProxyTestResult>
+  copyLaunchScript(config: CodexProxyConfig): Promise<ActionResult>
   launchCodex(config: CodexProxyConfig): Promise<LaunchResult>
   launchCodexDirectly(): Promise<LaunchResult>
   verifyProxyTraffic(config: CodexProxyConfig): Promise<TrafficVerificationResult>

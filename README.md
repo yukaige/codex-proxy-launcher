@@ -1,6 +1,7 @@
 # Codex 代理启动器
 
 一个专为 macOS 设计的 Codex / ChatGPT 桌面客户端代理启动工具。
+桌面外壳使用 Tauri 2 和系统 WebKit，网络与启动逻辑由 Rust 实现。
 
 它会同时为 Chromium 网络层传入代理参数，并为 Codex app-server
 设置代理环境变量，支持本地 SOCKS5 和 HTTP 代理。界面会分别显示
@@ -39,6 +40,7 @@
 - 配置代理主机、端口及 Chromium 绕过地址；
 - 启动前检查 TCP 端口、代理握手和 HTTPS 请求；
 - 同时配置 Chromium 启动参数和 app-server 代理环境变量；
+- 可按当前配置复制一份可直接运行的 macOS Shell 启动脚本；
 - 可在代理启动前正常退出已有 Codex 实例；
 - 可生成 Chromium net-log，并查找代理路由证据；
 - 显示 Codex 路径、版本、Bundle ID、运行状态和进程号；
@@ -51,7 +53,8 @@
 - 正在运行的本地或远程 SOCKS5/HTTP 代理；
 - 当前预构建版本仅提供 Apple Silicon（arm64）安装包。
 
-开发和构建需要 Node.js 22.12 或更高版本。
+开发和构建需要 Node.js 20 或更高版本、Rust 1.77.2 或更高版本，以及
+macOS Command Line Tools。
 
 ## 安装
 
@@ -75,6 +78,10 @@ Apple 公证。请只从本仓库的 Releases 页面或你自己审核后构建�
 5. 保持“启动前退出已有 Codex”开启，然后点击“代理启动 Codex”。
 6. 在 Codex 中发起一个新请求。
 7. 返回启动器点击“验证实际流量”，并结合代理软件的连接日志确认。
+
+也可以点击“复制启动脚本”，将与当前配置对应的脚本保存为 `.zsh`
+文件后通过 `zsh 文件名.zsh` 运行，或直接粘贴到终端运行。复制内容会
+在隔离的 zsh 子进程中执行，不会修改当前终端会话的 Shell 选项。
 
 更新启动器后，如果 Codex 仍是由旧版本启动的，请先彻底退出 Codex，
 再使用新版本重新启动。macOS 的权限责任归属和启动参数只会在新进程
@@ -122,7 +129,7 @@ npm ci
 npm run dev
 ```
 
-`npm run dev` 会启动 Vite 开发服务器和 Electron 应用。
+`npm run dev` 会启动 Vite 开发服务器和 Tauri 应用。
 
 ## 检查与测试
 
@@ -132,9 +139,9 @@ npm test
 npm run build
 ```
 
-- `typecheck`：检查 Vue、渲染进程和 Electron 主进程的 TypeScript；
-- `test`：运行 Vitest 单元测试；
-- `build`：生成渲染端、主进程和 preload 产物。
+- `typecheck`：检查 Vue/TypeScript，并运行 Rust `cargo check`；
+- `test`：运行 Rust 核心单元测试；
+- `build`：生成 Vue 静态资源和 Tauri release 可执行文件。
 
 ## 构建 macOS 安装包
 
@@ -143,30 +150,31 @@ npm ci
 npm run dist:mac
 ```
 
-构建结果位于 `release/`：
+构建结果位于 `src-tauri/target/aarch64-apple-darwin/release/bundle/`：
 
-- `release/mac-arm64/Codex 代理启动器.app`
-- `release/Codex-代理启动器-<version>-arm64.dmg`
+- `macos/Codex 代理启动器.app`
+- `dmg/Codex 代理启动器_<version>_aarch64.dmg`
 
-构建脚本使用本机 Electron 运行时和 macOS `hdiutil`。默认产物采用
-临时签名；正式分发时建议配置 Developer ID、Hardened Runtime 和
-Apple 公证流程。
+安装包由 Tauri 2 官方打包器生成，使用系统 WebKit，不再捆绑 Chromium。
+默认产物采用临时签名；正式分发时建议配置 Developer ID、Hardened
+Runtime 和 Apple 公证流程。
 
 ## 项目结构
 
 ```text
 src/
-  main/        Electron 主进程、应用检测、代理测试、启动与日志
-  preload/     最小化的 contextBridge API
   renderer/    Vue 3 用户界面
-  shared/      IPC 常量及主进程/渲染进程共享类型
-tests/         核心单元测试
-scripts/       preload 与 DMG 构建脚本
+  shared/      前端共享类型
+src-tauri/
+  src/         Rust 后端、应用检测、代理测试、启动、日志与单元测试
+  capabilities/ Tauri 主窗口权限
+  icons/       桌面应用图标
+  tauri.conf.json
 ```
 
 ## 配置与日志
 
-- 配置由 Electron 写入当前用户的应用数据目录；
+- 配置由 Tauri/Rust 后端写入当前用户的应用数据目录；
 - 启动器日志位于 `~/Library/Logs/CodexProxy/launcher.log`；
 - 开启调试日志后，Chromium net-log 位于
   `~/Library/Logs/CodexProxy/codex-net-log.json`。
@@ -184,7 +192,7 @@ net-log 可能包含访问域名、连接信息等调试数据。提交 Issue �
 - 不安装系统证书或修改系统代理；
 - 不读取 Codex 登录凭据、Cookie 或对话内容；
 - 不要求访问 Apple Music、通讯录、日历或其他 App 数据；
-- 在主进程中重新校验来自界面的 IPC 输入；
+- 在 Rust 后端中重新校验来自界面的 command 输入；
 - 写入权限受限的本地配置和日志文件；
 - 对日志中的 Authorization、Token、Cookie、API Key 和代理认证信息
   进行脱敏。
