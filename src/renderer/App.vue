@@ -80,6 +80,12 @@ const runtimeLabel = computed(() => {
   }
   return '未识别'
 })
+const platformLabel = computed(() =>
+  appInfo.value.platform === 'windows' ? 'WINDOWS' : 'macOS',
+)
+const identifierLabel = computed(() =>
+  appInfo.value.platform === 'windows' ? '应用标识' : 'Bundle ID',
+)
 
 watch(
   config,
@@ -230,7 +236,7 @@ function readableError(error: unknown): string {
   <main class="shell">
     <header class="hero">
       <div>
-        <p class="eyebrow">CODEX FOR macOS</p>
+        <p class="eyebrow">CODEX FOR {{ platformLabel }}</p>
         <h1>代理启动器</h1>
         <p class="lede">
           同时配置 Chromium 与 Codex app-server 代理，并把“已传入”和“已验证流量”分开呈现。
@@ -294,7 +300,7 @@ function readableError(error: unknown): string {
             <dd>{{ appInfo.version || '—' }}</dd>
           </div>
           <div>
-            <dt>Bundle ID</dt>
+            <dt>{{ identifierLabel }}</dt>
             <dd>{{ appInfo.bundleId || '—' }}</dd>
           </div>
           <div>
@@ -580,7 +586,7 @@ function readableError(error: unknown): string {
 
     <footer>
       <span>状态：{{ status.message }}</span>
-      <span>不修改 Codex.app · 不注入 · 不安装证书</span>
+      <span>不修改 Codex · 不注入 · 不安装证书</span>
     </footer>
   </main>
 </template>

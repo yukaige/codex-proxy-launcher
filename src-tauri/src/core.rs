@@ -138,6 +138,7 @@ pub fn launch_arguments(
     Ok(args)
 }
 
+#[cfg(target_os = "macos")]
 pub fn validate_app_path(value: &Path) -> Result<PathBuf, String> {
     if !value.is_absolute() {
         return Err("Codex 应用路径必须是绝对路径。".into());
@@ -153,8 +154,30 @@ pub fn validate_app_path(value: &Path) -> Result<PathBuf, String> {
     Ok(value.into())
 }
 
+#[cfg(target_os = "windows")]
+pub fn validate_app_path(value: &Path) -> Result<PathBuf, String> {
+    if !value.is_absolute() {
+        return Err("Codex 应用路径必须是绝对路径。".into());
+    }
+    let name = value
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !name.ends_with(".exe") {
+        return Err("请选择有效的 Windows .exe 可执行文件。".into());
+    }
+    Ok(value.into())
+}
+
+#[cfg(target_os = "macos")]
 pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(target_os = "windows")]
+pub fn powershell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 #[cfg(test)]
@@ -184,6 +207,9 @@ mod tests {
             ..CodexProxyConfig::default()
         };
         assert!(validate_config(&invalid).is_err());
+        #[cfg(target_os = "macos")]
         assert_eq!(shell_quote("Codex's.app"), "'Codex'\"'\"'s.app'");
+        #[cfg(target_os = "windows")]
+        assert_eq!(powershell_quote("Codex's.exe"), "'Codex''s.exe'");
     }
 }

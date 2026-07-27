@@ -1,11 +1,13 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
+
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 #[derive(Clone)]
 pub struct AppLogger {
@@ -14,8 +16,8 @@ pub struct AppLogger {
 }
 
 impl AppLogger {
-    pub fn new(home: &Path) -> Self {
-        let directory = home.join("Library/Logs/CodexProxy");
+    pub fn new(directory: &Path) -> Self {
+        let directory = directory.to_path_buf();
         let file_path = directory.join("launcher.log");
         Self {
             directory,
@@ -29,8 +31,10 @@ impl AppLogger {
 
     pub fn ensure_directory(&self) -> Result<(), String> {
         fs::create_dir_all(&self.directory).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
         fs::set_permissions(&self.directory, fs::Permissions::from_mode(0o700))
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     pub fn log(&self, level: &str, message: &str, detail: Option<&str>) {
@@ -43,12 +47,11 @@ impl AppLogger {
             .unwrap_or_default();
         let suffix = detail.map(|value| format!(" {value}")).unwrap_or_default();
         let line = redact_sensitive(&format!("{timestamp} [{level}] {message}{suffix}\n"));
-        if let Ok(mut file) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(&self.file_path)
-        {
+        let mut options = OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        if let Ok(mut file) = options.open(&self.file_path) {
             let _ = file.write_all(line.as_bytes());
         }
     }

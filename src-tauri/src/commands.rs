@@ -63,11 +63,7 @@ pub async fn detect_codex(state: State<'_, AppState>) -> Result<CodexAppInfo, St
 pub async fn choose_codex(state: State<'_, AppState>) -> Result<CodexAppInfo, String> {
     let state = state.inner().clone();
     blocking(move || {
-        let selected = rfd::FileDialog::new()
-            .set_title("选择 Codex.app")
-            .set_directory("/Applications")
-            .add_filter("macOS 应用", &["app"])
-            .pick_file();
+        let selected = codex_file_dialog().pick_file();
         let Some(path) = selected else {
             return Ok(detect_current(&state));
         };
@@ -186,8 +182,7 @@ pub async fn open_logs(state: State<'_, AppState>) -> Result<ActionResult, Strin
     let state = state.inner().clone();
     blocking(move || {
         state.logger.ensure_directory()?;
-        let status = Command::new("/usr/bin/open")
-            .arg(state.logger.directory())
+        let status = open_directory_command(state.logger.directory())
             .status()
             .map_err(|error| error.to_string())?;
         Ok(ActionResult {
@@ -206,12 +201,11 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let app_data = app.path().app_data_dir()?;
-            let home = std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .ok_or("无法确定用户主目录。")?;
+            let home = app.path().home_dir()?;
+            let log_directory = platform_log_directory(app, &home)?;
             app.manage(AppState {
                 store: SettingsStore::new(&app_data),
-                logger: AppLogger::new(&home),
+                logger: AppLogger::new(&log_directory),
                 home,
                 launcher: Arc::new(Mutex::new(LauncherState::default())),
             });
@@ -233,4 +227,43 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("运行 Codex 代理启动器失败");
+}
+
+#[cfg(target_os = "macos")]
+fn codex_file_dialog() -> rfd::FileDialog {
+    rfd::FileDialog::new()
+        .set_title("选择 Codex.app")
+        .set_directory("/Applications")
+        .add_filter("macOS 应用", &["app"])
+}
+
+#[cfg(target_os = "windows")]
+fn codex_file_dialog() -> rfd::FileDialog {
+    rfd::FileDialog::new()
+        .set_title("选择 Codex.exe 或 ChatGPT.exe")
+        .add_filter("Windows 应用", &["exe"])
+}
+
+#[cfg(target_os = "macos")]
+fn open_directory_command(path: &std::path::Path) -> Command {
+    let mut command = Command::new("/usr/bin/open");
+    command.arg(path);
+    command
+}
+
+#[cfg(target_os = "windows")]
+fn open_directory_command(path: &std::path::Path) -> Command {
+    let mut command = Command::new("explorer.exe");
+    command.arg(path);
+    command
+}
+
+#[cfg(target_os = "macos")]
+fn platform_log_directory(_app: &tauri::App, home: &std::path::Path) -> tauri::Result<PathBuf> {
+    Ok(home.join("Library/Logs/CodexProxy"))
+}
+
+#[cfg(target_os = "windows")]
+fn platform_log_directory(app: &tauri::App, _home: &std::path::Path) -> tauri::Result<PathBuf> {
+    app.path().app_log_dir()
 }

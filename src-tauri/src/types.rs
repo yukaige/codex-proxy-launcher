@@ -41,9 +41,19 @@ pub enum CodexRuntimeType {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppPlatform {
+    #[cfg(target_os = "macos")]
+    Macos,
+    #[cfg(target_os = "windows")]
+    Windows,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexAppInfo {
+    pub platform: AppPlatform,
     pub installed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_path: Option<String>,

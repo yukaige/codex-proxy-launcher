@@ -1,8 +1,8 @@
 {
   "name": "codex-proxy-launcher",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "通过 Chromium 代理参数和环境变量启动 macOS Codex/ChatGPT 桌面客户端。",
+  "description": "通过 Chromium 代理参数和环境变量启动 macOS/Windows Codex 桌面客户端。",
   "author": "yukaige",
   "license": "MIT",
   "engines": {
@@ -16,6 +16,7 @@
     "typecheck": "vue-tsc --noEmit -p tsconfig.json && cargo check --manifest-path src-tauri/Cargo.toml",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml",
     "dist:mac": "tauri build --bundles app,dmg --target aarch64-apple-darwin",
+    "dist:windows": "tauri build --no-bundle",
     "tauri": "tauri"
   },
   "dependencies": {

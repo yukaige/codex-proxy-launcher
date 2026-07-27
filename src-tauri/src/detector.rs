@@ -1,15 +1,18 @@
 use std::fs::{self, File};
 use std::io::Read;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde_json::Value;
-
 use crate::core::validate_app_path;
 use crate::logger::AppLogger;
-use crate::types::{CodexAppInfo, CodexRuntimeType};
+use crate::types::{AppPlatform, CodexAppInfo, CodexRuntimeType};
 
+#[cfg(target_os = "macos")]
+use serde_json::Value;
+#[cfg(target_os = "macos")]
+use std::os::unix::fs::PermissionsExt;
+
+#[cfg(target_os = "macos")]
 pub fn detect(preferred_path: Option<&str>, home: &Path, logger: &AppLogger) -> CodexAppInfo {
     let mut candidates = Vec::new();
     if let Some(path) = preferred_path {
@@ -29,19 +32,43 @@ pub fn detect(preferred_path: Option<&str>, home: &Path, logger: &AppLogger) -> 
         }
     }
     logger.log("WARN", "未在默认位置找到 Codex.app。", None);
-    CodexAppInfo {
-        installed: false,
-        app_path: None,
-        executable_path: None,
-        bundle_id: None,
-        version: None,
-        is_electron: false,
-        runtime_type: CodexRuntimeType::Unknown,
-        proxy_switch_compatible: false,
-        is_running: false,
-        pid_list: vec![],
-        warning: Some("没有找到 Codex.app。请确认已安装，或手动选择应用。".into()),
+    missing(
+        AppPlatform::Macos,
+        "没有找到 Codex.app。请确认已安装，或手动选择应用。",
+    )
+}
+
+#[cfg(target_os = "windows")]
+pub fn detect(preferred_path: Option<&str>, _home: &Path, logger: &AppLogger) -> CodexAppInfo {
+    let mut candidates = Vec::new();
+    if let Some(path) = preferred_path {
+        candidates.push(PathBuf::from(path));
     }
+    for base in ["LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"] {
+        let Some(directory) = std::env::var_os(base).map(PathBuf::from) else {
+            continue;
+        };
+        candidates.extend([
+            directory.join("Programs/Codex/Codex.exe"),
+            directory.join("Programs/OpenAI/Codex/Codex.exe"),
+            directory.join("Programs/ChatGPT/ChatGPT.exe"),
+            directory.join("Programs/OpenAI/ChatGPT/ChatGPT.exe"),
+            directory.join("Codex/Codex.exe"),
+            directory.join("ChatGPT/ChatGPT.exe"),
+        ]);
+    }
+    candidates.dedup();
+
+    for candidate in candidates {
+        if candidate.is_file() {
+            return inspect(&candidate, logger);
+        }
+    }
+    logger.log("WARN", "未在默认位置找到 Codex.exe 或 ChatGPT.exe。", None);
+    missing(
+        AppPlatform::Windows,
+        "没有找到 Codex.exe 或 ChatGPT.exe。请确认已安装，或手动选择应用。",
+    )
 }
 
 pub fn inspect(path: &Path, logger: &AppLogger) -> CodexAppInfo {
@@ -64,6 +91,7 @@ pub fn inspect(path: &Path, logger: &AppLogger) -> CodexAppInfo {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn inspect_inner(app_path: &Path) -> Result<CodexAppInfo, String> {
     let metadata = read_metadata(app_path)?;
     let executable_path = app_path
@@ -75,12 +103,13 @@ fn inspect_inner(app_path: &Path) -> Result<CodexAppInfo, String> {
         return Err("Codex 可执行文件没有执行权限。".into());
     }
 
-    let (runtime_type, proxy_switch_compatible) = detect_runtime(app_path);
+    let (runtime_type, proxy_switch_compatible) = detect_runtime(app_path, &executable_path);
     let executable = executable_path.to_string_lossy().into_owned();
     let pid_list = find_running_pids(&executable);
     let warning = (runtime_type == CodexRuntimeType::Unknown)
         .then(|| "未检测到 Chromium 运行时，代理启动参数可能无效。".into());
     Ok(CodexAppInfo {
+        platform: AppPlatform::Macos,
         installed: true,
         app_path: Some(app_path.to_string_lossy().into_owned()),
         executable_path: Some(executable),
@@ -95,12 +124,44 @@ fn inspect_inner(app_path: &Path) -> Result<CodexAppInfo, String> {
     })
 }
 
+#[cfg(target_os = "windows")]
+fn inspect_inner(executable_path: &Path) -> Result<CodexAppInfo, String> {
+    if !executable_path.is_file() {
+        return Err("Codex 可执行文件不存在。".into());
+    }
+    let metadata = read_windows_metadata(executable_path);
+    let (runtime_type, proxy_switch_compatible) = detect_runtime(
+        executable_path.parent().unwrap_or(Path::new("")),
+        executable_path,
+    );
+    let executable = executable_path.to_string_lossy().into_owned();
+    let pid_list = find_running_pids(&executable);
+    let warning = (runtime_type == CodexRuntimeType::Unknown)
+        .then(|| "未检测到 Chromium/Electron 运行时，代理启动参数可能无效。".into());
+    Ok(CodexAppInfo {
+        platform: AppPlatform::Windows,
+        installed: true,
+        app_path: Some(executable.clone()),
+        executable_path: Some(executable),
+        bundle_id: metadata.as_ref().and_then(|value| value.product_name()),
+        version: metadata.as_ref().and_then(|value| value.version()),
+        is_electron: runtime_type == CodexRuntimeType::Electron,
+        runtime_type,
+        proxy_switch_compatible,
+        is_running: !pid_list.is_empty(),
+        pid_list,
+        warning,
+    })
+}
+
+#[cfg(target_os = "macos")]
 struct PlistMetadata {
     bundle_id: String,
     version: String,
     executable_name: String,
 }
 
+#[cfg(target_os = "macos")]
 fn read_metadata(app_path: &Path) -> Result<PlistMetadata, String> {
     let output = Command::new("/usr/bin/plutil")
         .args(["-convert", "json", "-o", "-"])
@@ -125,7 +186,7 @@ fn read_metadata(app_path: &Path) -> Result<PlistMetadata, String> {
     )?;
     if Path::new(&executable_name)
         .file_name()
-        .and_then(|v| v.to_str())
+        .and_then(|value| value.to_str())
         != Some(executable_name.as_str())
     {
         return Err("Info.plist 中的可执行文件名无效。".into());
@@ -145,6 +206,7 @@ fn read_metadata(app_path: &Path) -> Result<PlistMetadata, String> {
     })
 }
 
+#[cfg(target_os = "macos")]
 fn required_string(value: Option<&Value>, message: &str) -> Result<String, String> {
     value
         .and_then(Value::as_str)
@@ -154,22 +216,83 @@ fn required_string(value: Option<&Value>, message: &str) -> Result<String, Strin
         .ok_or_else(|| message.to_owned())
 }
 
-fn detect_runtime(app_path: &Path) -> (CodexRuntimeType, bool) {
-    let frameworks = app_path.join("Contents/Frameworks");
-    if let Ok(entries) = fs::read_dir(&frameworks) {
-        if entries.flatten().any(|entry| {
-            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            entry.path().is_dir() && name.contains("electron") && name.contains("framework")
-        }) {
-            return (CodexRuntimeType::Electron, true);
+#[cfg(target_os = "windows")]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct WindowsMetadata {
+    file_version: Option<String>,
+    product_version: Option<String>,
+    product_name: Option<String>,
+    original_filename: Option<String>,
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsMetadata {
+    fn version(&self) -> Option<String> {
+        self.product_version
+            .as_deref()
+            .or(self.file_version.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    }
+
+    fn product_name(&self) -> Option<String> {
+        self.product_name
+            .as_deref()
+            .or(self.original_filename.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn read_windows_metadata(executable_path: &Path) -> Option<WindowsMetadata> {
+    let script = "$v=(Get-Item -LiteralPath $env:CODEX_TARGET_PATH).VersionInfo; \
+        [pscustomobject]@{FileVersion=$v.FileVersion;ProductVersion=$v.ProductVersion;\
+        ProductName=$v.ProductName;OriginalFilename=$v.OriginalFilename} | \
+        ConvertTo-Json -Compress";
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("CODEX_TARGET_PATH", executable_path)
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| serde_json::from_slice(&output.stdout).ok())
+        .flatten()
+}
+
+fn detect_runtime(app_root: &Path, _executable_path: &Path) -> (CodexRuntimeType, bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let frameworks = app_root.join("Contents/Frameworks");
+        if let Ok(entries) = fs::read_dir(&frameworks) {
+            if entries.flatten().any(|entry| {
+                let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                entry.path().is_dir() && name.contains("electron") && name.contains("framework")
+            }) {
+                return (CodexRuntimeType::Electron, true);
+            }
+        }
+        let binary = frameworks.join("Codex Framework.framework/Versions/Current/Codex Framework");
+        if binary.exists() {
+            return (
+                CodexRuntimeType::CodexChromium,
+                file_contains(&binary, b"proxy-server"),
+            );
         }
     }
-    let binary = frameworks.join("Codex Framework.framework/Versions/Current/Codex Framework");
-    if binary.exists() {
-        return (
-            CodexRuntimeType::CodexChromium,
-            file_contains(&binary, b"proxy-server"),
-        );
+    #[cfg(target_os = "windows")]
+    {
+        if app_root.join("resources/app.asar").is_file() {
+            return (CodexRuntimeType::Electron, true);
+        }
+        if file_contains(_executable_path, b"proxy-server") {
+            return (CodexRuntimeType::CodexChromium, true);
+        }
     }
     (CodexRuntimeType::Unknown, false)
 }
@@ -197,6 +320,7 @@ fn file_contains(path: &Path, needle: &[u8]) -> bool {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub fn find_running_pids(executable_path: &str) -> Vec<u32> {
     let Ok(output) = Command::new("/bin/ps")
         .args(["-axo", "pid=,command="])
@@ -220,8 +344,45 @@ pub fn find_running_pids(executable_path: &str) -> Vec<u32> {
         .collect()
 }
 
+#[cfg(target_os = "windows")]
+pub fn find_running_pids(executable_path: &str) -> Vec<u32> {
+    let script = "$target=[IO.Path]::GetFullPath($env:CODEX_TARGET_PATH); \
+        Get-Process | ForEach-Object { try { if ([string]::Equals(\
+        [IO.Path]::GetFullPath($_.Path),$target,[StringComparison]::OrdinalIgnoreCase)) \
+        { $_.Id } } catch {} }";
+    let Ok(output) = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("CODEX_TARGET_PATH", executable_path)
+        .output()
+    else {
+        return vec![];
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .collect()
+}
+
+fn missing(platform: AppPlatform, warning: &str) -> CodexAppInfo {
+    CodexAppInfo {
+        platform,
+        installed: false,
+        app_path: None,
+        executable_path: None,
+        bundle_id: None,
+        version: None,
+        is_electron: false,
+        runtime_type: CodexRuntimeType::Unknown,
+        proxy_switch_compatible: false,
+        is_running: false,
+        pid_list: vec![],
+        warning: Some(warning.into()),
+    }
+}
+
 fn invalid(path: &Path, warning: &str) -> CodexAppInfo {
     CodexAppInfo {
+        platform: current_platform(),
         installed: true,
         app_path: Some(path.to_string_lossy().into_owned()),
         executable_path: None,
@@ -234,4 +395,14 @@ fn invalid(path: &Path, warning: &str) -> CodexAppInfo {
         pid_list: vec![],
         warning: Some(warning.into()),
     }
+}
+
+#[cfg(target_os = "macos")]
+fn current_platform() -> AppPlatform {
+    AppPlatform::Macos
+}
+
+#[cfg(target_os = "windows")]
+fn current_platform() -> AppPlatform {
+    AppPlatform::Windows
 }
