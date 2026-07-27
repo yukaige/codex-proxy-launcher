@@ -44,6 +44,22 @@ jobs:
       - name: Build portable executable without an installer
         run: npm run dist:windows
 
+      - name: Verify portable EXE
+        shell: pwsh
+        run: |
+          $path = "src-tauri\target\release\codex-proxy-launcher.exe"
+          $bytes = [IO.File]::ReadAllBytes($path)
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          $subsystem = [BitConverter]::ToUInt16($bytes, $peOffset + 24 + 68)
+          if ($machine -ne 0x8664) {
+            throw "Expected an x64 PE executable, machine value was 0x$($machine.ToString('x4'))."
+          }
+          if ($subsystem -ne 2) {
+            throw "Expected the Windows GUI subsystem, subsystem value was $subsystem."
+          }
+          Write-Host "Verified x64 Windows GUI executable: $((Get-Item $path).Length) bytes"
+
       - name: Upload EXE to the GitHub release
         if: github.event_name != 'pull_request'
         shell: pwsh
