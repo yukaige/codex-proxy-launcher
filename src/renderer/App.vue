@@ -8,12 +8,14 @@ import {
   type ProxyTestResult,
   type TrafficVerificationResult,
 } from '../shared/types'
+import { codexProxy } from './api'
 
 type Operation =
   | 'initial'
   | 'detect'
   | 'choose'
   | 'test'
+  | 'copy'
   | 'launch'
   | 'direct'
   | 'verify'
@@ -85,7 +87,7 @@ watch(
     if (!initialized.value) return
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
-      window.codexProxy.saveConfig({ ...config }).catch((error: unknown) => {
+      codexProxy.saveConfig({ ...config }).catch((error: unknown) => {
         notice.value = readableError(error)
       })
     }, 350)
@@ -97,12 +99,12 @@ onMounted(async () => {
   operation.value = 'initial'
   try {
     const [storedConfig, detected] = await Promise.all([
-      window.codexProxy.getConfig(),
-      window.codexProxy.detectCodex(),
+      codexProxy.getConfig(),
+      codexProxy.detectCodex(),
     ])
     Object.assign(config, storedConfig)
     appInfo.value = detected
-    status.value = await window.codexProxy.getCodexStatus()
+    status.value = await codexProxy.getCodexStatus()
   } catch (error) {
     notice.value = readableError(error)
   } finally {
@@ -113,8 +115,8 @@ onMounted(async () => {
 
 async function detectCodex(): Promise<void> {
   await run('detect', async () => {
-    appInfo.value = await window.codexProxy.detectCodex()
-    status.value = await window.codexProxy.getCodexStatus()
+    appInfo.value = await codexProxy.detectCodex()
+    status.value = await codexProxy.getCodexStatus()
     notice.value = appInfo.value.installed
       ? '已完成 Codex 检测。'
       : '没有在默认位置找到 Codex。'
@@ -123,7 +125,7 @@ async function detectCodex(): Promise<void> {
 
 async function chooseCodex(): Promise<void> {
   await run('choose', async () => {
-    appInfo.value = await window.codexProxy.chooseCodex()
+    appInfo.value = await codexProxy.chooseCodex()
     notice.value = appInfo.value.executablePath
       ? '已选择 Codex 应用。'
       : (appInfo.value.warning ?? '')
@@ -132,32 +134,39 @@ async function chooseCodex(): Promise<void> {
 
 async function testProxy(): Promise<void> {
   await run('test', async () => {
-    proxyTest.value = await window.codexProxy.testProxy({ ...config })
+    proxyTest.value = await codexProxy.testProxy({ ...config })
     notice.value = proxyTest.value.message
+  })
+}
+
+async function copyLaunchScript(): Promise<void> {
+  await run('copy', async () => {
+    const result = await codexProxy.copyLaunchScript({ ...config })
+    notice.value = result.message
   })
 }
 
 async function launchCodex(): Promise<void> {
   await run('launch', async () => {
-    launchResult.value = await window.codexProxy.launchCodex({ ...config })
-    status.value = await window.codexProxy.getCodexStatus()
-    appInfo.value = await window.codexProxy.detectCodex()
+    launchResult.value = await codexProxy.launchCodex({ ...config })
+    status.value = await codexProxy.getCodexStatus()
+    appInfo.value = await codexProxy.detectCodex()
     notice.value = launchResult.value.message
   })
 }
 
 async function launchDirectly(): Promise<void> {
   await run('direct', async () => {
-    launchResult.value = await window.codexProxy.launchCodexDirectly()
-    status.value = await window.codexProxy.getCodexStatus()
-    appInfo.value = await window.codexProxy.detectCodex()
+    launchResult.value = await codexProxy.launchCodexDirectly()
+    status.value = await codexProxy.getCodexStatus()
+    appInfo.value = await codexProxy.detectCodex()
     notice.value = launchResult.value.message
   })
 }
 
 async function verifyTraffic(): Promise<void> {
   await run('verify', async () => {
-    trafficResult.value = await window.codexProxy.verifyProxyTraffic({
+    trafficResult.value = await codexProxy.verifyProxyTraffic({
       ...config,
     })
     if (launchResult.value && trafficResult.value.verified) {
@@ -167,23 +176,23 @@ async function verifyTraffic(): Promise<void> {
         trafficVerified: true,
       }
     }
-    status.value = await window.codexProxy.getCodexStatus()
+    status.value = await codexProxy.getCodexStatus()
     notice.value = trafficResult.value.message
   })
 }
 
 async function stopCodex(): Promise<void> {
   await run('stop', async () => {
-    const result = await window.codexProxy.stopCodex()
-    appInfo.value = await window.codexProxy.detectCodex()
-    status.value = await window.codexProxy.getCodexStatus()
+    const result = await codexProxy.stopCodex()
+    appInfo.value = await codexProxy.detectCodex()
+    status.value = await codexProxy.getCodexStatus()
     notice.value = result.message
   })
 }
 
 async function openLogs(): Promise<void> {
   await run('logs', async () => {
-    const result = await window.codexProxy.openLogs()
+    const result = await codexProxy.openLogs()
     notice.value = result.message
   })
 }
@@ -204,9 +213,9 @@ async function run(
 }
 
 function readableError(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : '操作失败，请打开日志目录查看详情。'
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string' && error.trim()) return error
+  return '操作失败，请打开日志目录查看详情。'
 }
 </script>
 
@@ -214,8 +223,9 @@ function readableError(error: unknown): string {
   <div
     class="titlebar"
     aria-hidden="true"
+    data-tauri-drag-region
   >
-    <span>Codex 代理启动器</span>
+    <span data-tauri-drag-region>Codex 代理启动器</span>
   </div>
   <main class="shell">
     <header class="hero">
@@ -507,6 +517,18 @@ function readableError(error: unknown): string {
           {{
             operation === 'launch' ? '正在验证并启动…' : '代理启动 Codex'
           }}
+        </button>
+        <button
+          class="secondary"
+          :disabled="
+            Boolean(operation) ||
+            !canLaunch ||
+            !config.enabled ||
+            !configValid
+          "
+          @click="copyLaunchScript"
+        >
+          {{ operation === 'copy' ? '正在生成…' : '复制启动脚本' }}
         </button>
         <button
           class="secondary"
