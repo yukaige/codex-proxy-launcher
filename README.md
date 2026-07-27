@@ -55,8 +55,8 @@
 
 ## 安装
 
-1. 从项目的 GitHub Releases 页面下载最新的
-   `Codex-代理启动器-*-arm64.dmg`。
+1. 从项目的 GitHub Releases 页面下载最新的 Apple Silicon（arm64）
+   DMG 安装包。
 2. 打开 DMG，将“Codex 代理启动器”拖入“应用程序”。
 3. 首次打开时，macOS 如果提示应用来自未识别的开发者，请在 Finder
    中右键应用并选择“打开”。
