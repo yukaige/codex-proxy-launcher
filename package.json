@@ -1,0 +1,68 @@
+{
+  "name": "codex-proxy-launcher",
+  "version": "0.1.1",
+  "private": true,
+  "description": "通过明确的 Chromium 代理参数启动 macOS Codex/ChatGPT 桌面客户端。",
+  "author": "yukaige",
+  "license": "MIT",
+  "main": "dist-electron/main/index.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json && node scripts/build-preload.mjs",
+    "build": "npm run build:renderer && npm run build:electron",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dist:mac": "npm run build && electron-builder --mac dir --arm64 && zsh scripts/package-dmg.sh"
+  },
+  "dependencies": {
+    "vue": "^3.5.24"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@vitejs/plugin-vue": "^6.0.2",
+    "concurrently": "^9.2.1",
+    "electron": "43.2.0",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.27.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2",
+    "vitest": "^4.0.10",
+    "vue-tsc": "^3.1.4",
+    "wait-on": "^9.0.1"
+  },
+  "build": {
+    "appId": "com.codexproxy.launcher",
+    "productName": "Codex 代理启动器",
+    "asar": false,
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "identity": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "Codex 代理启动器 ${version}"
+    },
+    "artifactName": "Codex-代理启动器-${version}-${arch}.${ext}"
+  }
+}
