@@ -219,6 +219,7 @@ h1 {
 
 dt,
 .form-grid label > span,
+.form-grid .field-label,
 .address-preview > span,
 .args-panel > span {
   display: block;
@@ -374,8 +375,74 @@ button.danger {
   opacity: 0.48;
 }
 
-.form-grid label.full {
+.form-grid .full {
   grid-column: 1 / -1;
+}
+
+.form-grid small {
+  display: block;
+  margin-top: 5px;
+  color: #777e74;
+  font-size: 11px;
+}
+
+.built-in-bypass code {
+  display: block;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: #eff1eb;
+}
+
+.whitelist-input-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 9px;
+}
+
+.whitelist-input-row button {
+  min-width: 64px;
+}
+
+.whitelist-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.whitelist-list li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 5px 4px 9px;
+  border: 1px solid #dce2d5;
+  border-radius: 999px;
+  background: #f7faf3;
+}
+
+.whitelist-list code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whitelist-list button {
+  width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  color: #777e74;
+  background: transparent;
+  font-size: 16px;
+}
+
+.whitelist-empty {
+  margin: 9px 0 0;
+  color: #92988f;
+  font-size: 11px;
 }
 
 input,
@@ -584,8 +651,12 @@ footer {
   }
 
   .form-grid .host-field,
-  .form-grid label.full {
+  .form-grid .full {
     grid-column: 1 / -1;
+  }
+
+  .whitelist-input-row {
+    grid-template-columns: 1fr;
   }
 
   .verification {

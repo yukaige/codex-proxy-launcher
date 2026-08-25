@@ -537,7 +537,7 @@ dependencies = [
 
 [[package]]
 name = "codex-proxy-launcher"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "arboard",
  "native-tls",
@@ -548,6 +548,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "thiserror 2.0.19",
+ "url",
 ]
 
 [[package]]

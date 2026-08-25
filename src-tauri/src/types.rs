@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::core::DEFAULT_BYPASS_LIST;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexProxyConfig {
@@ -8,6 +10,8 @@ pub struct CodexProxyConfig {
     pub host: String,
     pub port: u16,
     pub bypass_list: String,
+    #[serde(default)]
+    pub whitelist: Vec<String>,
     pub close_existing_instance: bool,
     pub enable_debug_log: bool,
 }
@@ -19,7 +23,8 @@ impl Default for CodexProxyConfig {
             protocol: ProxyProtocol::Socks5,
             host: "127.0.0.1".into(),
             port: 7890,
-            bypass_list: "localhost;127.0.0.1;<-loopback>".into(),
+            bypass_list: DEFAULT_BYPASS_LIST.into(),
+            whitelist: Vec::new(),
             close_existing_instance: true,
             enable_debug_log: true,
         }

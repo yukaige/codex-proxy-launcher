@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Codex 代理启动器",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "identifier": "com.codexproxy.launcher",
   "build": {
     "beforeDevCommand": "npm run dev:renderer",

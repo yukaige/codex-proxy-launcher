@@ -42,6 +42,7 @@ const launchResult = ref<LaunchResult>()
 const trafficResult = ref<TrafficVerificationResult>()
 const operation = ref<Operation>()
 const notice = ref('')
+const whitelistInput = ref('')
 const initialized = ref(false)
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -93,9 +94,21 @@ watch(
     if (!initialized.value) return
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
-      codexProxy.saveConfig({ ...config }).catch((error: unknown) => {
-        notice.value = readableError(error)
-      })
+      codexProxy
+        .saveConfig({ ...config })
+        .then((savedConfig) => {
+          if (savedConfig.bypassList !== config.bypassList) {
+            config.bypassList = savedConfig.bypassList
+          }
+          if (
+            savedConfig.whitelist.join('\0') !== config.whitelist.join('\0')
+          ) {
+            config.whitelist = [...savedConfig.whitelist]
+          }
+        })
+        .catch((error: unknown) => {
+          notice.value = readableError(error)
+        })
     }, 350)
   },
   { deep: true },
@@ -201,6 +214,27 @@ async function openLogs(): Promise<void> {
     const result = await codexProxy.openLogs()
     notice.value = result.message
   })
+}
+
+function addWhitelistEntries(): void {
+  const entries = whitelistInput.value
+    .split(/[;,\n]/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+  for (const entry of entries) {
+    if (
+      !config.whitelist.some(
+        (existing) => existing.toLowerCase() === entry.toLowerCase(),
+      )
+    ) {
+      config.whitelist.push(entry)
+    }
+  }
+  whitelistInput.value = ''
+}
+
+function removeWhitelistEntry(index: number): void {
+  config.whitelist.splice(index, 1)
 }
 
 async function run(
@@ -389,14 +423,57 @@ function readableError(error: unknown): string {
               max="65535"
             />
           </label>
-          <label class="full">
-            <span>绕过地址</span>
-            <input
-              v-model="config.bypassList"
-              :disabled="!config.enabled"
-              autocomplete="off"
-            />
-          </label>
+          <div class="full built-in-bypass">
+            <span class="field-label">内置直连规则</span>
+            <code>{{ config.bypassList }}</code>
+            <small>本机回环、局域网 IP 与简单主机名始终直连。</small>
+          </div>
+          <div class="full whitelist-editor">
+            <span class="field-label">直连白名单 · 自动保存</span>
+            <div class="whitelist-input-row">
+              <input
+                v-model="whitelistInput"
+                :disabled="!config.enabled"
+                autocomplete="off"
+                placeholder="https://example.com、192.168.1.20 或 *.example.lan"
+                @keydown.enter.prevent="addWhitelistEntries"
+              />
+              <button
+                class="secondary"
+                type="button"
+                :disabled="!config.enabled || !whitelistInput.trim()"
+                @click="addWhitelistEntries"
+              >
+                添加
+              </button>
+            </div>
+            <small>支持网址、域名、IP 和 CIDR；网址路径会自动去除。</small>
+            <ul
+              v-if="config.whitelist.length"
+              class="whitelist-list"
+            >
+              <li
+                v-for="(entry, index) in config.whitelist"
+                :key="entry"
+              >
+                <code>{{ entry }}</code>
+                <button
+                  type="button"
+                  :aria-label="`删除白名单 ${entry}`"
+                  :disabled="!config.enabled"
+                  @click="removeWhitelistEntry(index)"
+                >
+                  ×
+                </button>
+              </li>
+            </ul>
+            <p
+              v-else
+              class="whitelist-empty"
+            >
+              暂无用户白名单
+            </p>
+          </div>
         </div>
 
         <div class="toggles">

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::{validate_app_path, validate_config};
+use crate::core::{normalize_config, validate_app_path, validate_config};
 use crate::types::CodexProxyConfig;
 
 #[cfg(unix)]
@@ -35,8 +35,8 @@ impl SettingsStore {
             .unwrap_or_default()
     }
 
-    pub fn save_config(&self, config: CodexProxyConfig) -> Result<CodexProxyConfig, String> {
-        validate_config(&config)?;
+    pub fn save_config(&self, mut config: CodexProxyConfig) -> Result<CodexProxyConfig, String> {
+        normalize_config(&mut config)?;
         let selected_app_path = self.read().and_then(|settings| settings.selected_app_path);
         self.write(&StoredSettings {
             config: config.clone(),
@@ -59,8 +59,9 @@ impl SettingsStore {
 
     fn read(&self) -> Option<StoredSettings> {
         let text = fs::read_to_string(&self.file_path).ok()?;
-        let settings: StoredSettings = serde_json::from_str(&text).ok()?;
+        let mut settings: StoredSettings = serde_json::from_str(&text).ok()?;
         validate_config(&settings.config).ok()?;
+        normalize_config(&mut settings.config).ok()?;
         if let Some(path) = settings.selected_app_path.as_deref() {
             validate_app_path(Path::new(path)).ok()?;
         }

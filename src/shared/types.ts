@@ -6,6 +6,7 @@ export interface CodexProxyConfig {
   host: string
   port: number
   bypassList: string
+  whitelist: string[]
   closeExistingInstance: boolean
   enableDebugLog: boolean
 }
@@ -97,7 +98,9 @@ export const defaultConfig: Readonly<CodexProxyConfig> = Object.freeze({
   protocol: 'socks5',
   host: '127.0.0.1',
   port: 7890,
-  bypassList: 'localhost;127.0.0.1;<-loopback>',
+  bypassList:
+    'localhost;127.0.0.1;[::1];<local>;10.0.0.0/8;172.16.0.0/12;192.168.0.0/16;169.254.0.0/16;fc00::/7;fe80::/10',
+  whitelist: [],
   closeExistingInstance: true,
   enableDebugLog: true,
 })

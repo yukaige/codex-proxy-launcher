@@ -17,6 +17,7 @@
 - 支持 SOCKS5 和 HTTP CONNECT 代理；
 - 启动前检查 TCP 端口、代理握手和 HTTPS 请求；
 - 同时配置 Chromium 参数和 app-server 代理环境变量；
+- 保存用户直连白名单，支持网址、域名、IP 与 CIDR；
 - 复制与当前配置对应的 zsh（macOS）或 PowerShell（Windows）脚本；
 - 启动前请求已有 Codex 实例正常退出，不强制终止进程；
 - 生成 Chromium net-log，并查找代理路由证据；
@@ -95,6 +96,19 @@ Codex 代理启动器
 
 SOCKS5 模式下，Chromium 使用 `socks5://`，app-server 环境变量使用
 `socks5h://`，让域名解析也通过 SOCKS 代理完成。
+
+启动器会强制保留本机回环、IPv4 私网与链路本地、IPv6 ULA 与链路本地
+网段作为 Chromium 绕过规则，避免内置浏览器把本地或局域网服务错误地
+发送到代理。旧配置中的 `<-loopback>` 会在读取或保存时自动移除；用户
+添加的其他绕过地址（例如企业内部域名后缀）会保留。
+
+Chromium 的 CIDR 绕过只匹配 URL 中直接写出的 IP 地址。对于
+`nas.example.lan` 这类解析到私网 IP 的完整域名，需要把对应域名或
+`*.example.lan` 后缀另行加入绕过地址。
+
+界面的“直连白名单”会随其他配置持久化。输入完整网址时，启动器只保存
+主机名和显式端口（例如 `https://example.com:8443/path` 会保存为
+`example.com:8443`），因为 Chromium 的手动代理绕过规则不按 URL 路径匹配。
 
 ## 从源码运行
 
