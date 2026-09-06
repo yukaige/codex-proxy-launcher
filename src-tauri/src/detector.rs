@@ -500,7 +500,13 @@ mod tests {
         fs::write(root.join("AppxManifest.xml"), r#"<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"><Identity Name="OpenAI.Codex"/><Applications><Application Executable="app/ChatGPT.exe"/></Applications></Package>"#).unwrap();
         let logger = AppLogger::new(&root.join("logs"));
         let result = windows_store_candidates(Some(&helper), &logger);
-        assert_eq!(result, vec![actual]);
+        assert_eq!(result.len(), 1);
+        // Windows CI can expose TEMP using an 8.3 short path while PowerShell
+        // returns the long path. Compare the files, not their spelling.
+        assert_eq!(
+            fs::canonicalize(&result[0]).unwrap(),
+            fs::canonicalize(actual).unwrap()
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
