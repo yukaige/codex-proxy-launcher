@@ -1,6 +1,10 @@
 param([string]$Gh = 'gh')
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path -Parent $PSScriptRoot)
+if ($Gh -eq 'gh' -and -not (Get-Command gh -ErrorAction SilentlyContinue)) {
+    $portableGh = Join-Path (Get-Location) 'src-tauri/target/build-tools/gh/bin/gh.exe'
+    if (Test-Path -LiteralPath $portableGh) { $Gh = $portableGh }
+}
 $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
 $tag = "v$version"
 $repository = 'yukaige/codex-proxy-launcher'
@@ -25,7 +29,7 @@ $lines = foreach ($asset in $assets) {
 }
 [IO.File]::WriteAllLines($checksums, $lines, [Text.UTF8Encoding]::new($false))
 $assets += $checksums
-& $Gh release create $tag @assets --repo $repository --verify-tag --draft --title "Codex 代理启动器 $tag" --notes-file RELEASE_NOTES.md
+& $Gh release create $tag @assets --repo $repository --verify-tag --draft --title "Codex Proxy Launcher $tag" --notes-file RELEASE_NOTES.md
 if ($LASTEXITCODE -ne 0) { throw 'Draft release upload failed' }
 $json = & $Gh release view $tag --repo $repository --json assets
 if ($LASTEXITCODE -ne 0) { throw 'Cannot verify uploaded assets' }
