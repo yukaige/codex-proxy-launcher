@@ -44,11 +44,11 @@ Linux 暂不在本项目支持范围内，因为目前没有可供启动的 Code
 从 [GitHub Releases](https://github.com/yukaige/codex-proxy-launcher/releases)
 下载对应文件：
 
-- Windows x64：`Codex-Proxy-Launcher-<版本>-windows-x64.exe`
+- Windows x64：`Codex-Proxy-Launcher-<版本>-windows-x64.zip`
 - macOS Apple Silicon：`.dmg`
 
-Windows 版不提供 MSI 或安装器。下载 EXE 后可放到任意目录直接运行，
-删除该文件即可移除程序。当前发布物没有商业代码签名，Windows
+Windows 版不提供 MSI 或安装器。解压 ZIP 后运行其中的 EXE；请将随附的
+`WebView2Loader.dll` 保留在同一目录。删除解压目录即可移除程序。当前发布物没有商业代码签名，Windows
 SmartScreen 或 macOS Gatekeeper 可能显示未知发布者提示；请只从本仓库
 下载，或审核源码后自行构建。
 
@@ -154,12 +154,31 @@ src-tauri\target\release\codex-proxy-launcher.exe
 构建终端的 PATH，提供 GCC、dlltool 和 windres。请使用与
 `x86_64-pc-windows-gnu` 匹配的 MinGW64 工具链。
 GNU 构建还需要将输出目录内的 `WebView2Loader.dll` 与 EXE 放在同一目录，
-移动程序时请一起复制。GitHub 发布工作流使用 MSVC 工具链生成单文件 EXE。
+移动程序时请一起复制。
 
-推送版本标签（例如 `v0.3.3`）后，GitHub Actions 会分别检查并构建
-Windows x64 EXE 和 macOS Apple Silicon DMG；两个平台都成功后，才创建
-GitHub Release 并上传发布物及 SHA-256 校验文件。
-Windows 工作流仍支持通过手动指定已有标签重新构建和上传 EXE。
+发布构建在自有机器完成，不使用 GitHub Actions：Windows 使用本机，macOS
+使用 Apple Silicon Mac。Windows 本机完整检查和打包命令：
+
+```powershell
+./scripts/build-windows.ps1
+```
+
+该脚本会检查源码、运行测试、编译 EXE，并把所需 DLL 一起打包到
+`release/v<版本>/`。在 Mac 的同一版本源码目录执行：
+
+```bash
+bash scripts/build-macos.sh
+```
+
+将生成的 DMG 复制回 Windows 的 `release/v<版本>/`，提交源码、推送同名
+版本标签后，使用已登录的 GitHub CLI 从本机上传并发布：
+
+```powershell
+./scripts/publish-release.ps1
+```
+
+发布脚本先上传到草稿并核对文件大小，再公开 Release，同时提供 SHA-256
+校验文件。GitHub 只托管源码和发布下载，不执行发布构建。
 
 ## 配置与日志
 
@@ -187,7 +206,7 @@ net-log 可能包含访问域名和连接信息，不受启动器的日志脱敏
 
 ## 已知限制
 
-- Windows 当前只发布 x64 便携 EXE；
+- Windows 当前只发布 x64 便携 ZIP；
 - 当前不支持 Linux；
 - 当前不支持带用户名和密码认证的 SOCKS5/HTTP 代理；
 - 必须退出已有 Codex 实例后重新启动，代理参数才能可靠生效；
@@ -198,7 +217,7 @@ net-log 可能包含访问域名和连接信息，不受启动器的日志脱敏
 
 ### Windows EXE 为什么没有安装界面？
 
-这是有意的。Windows 版是单文件便携程序，不生成 MSI/NSIS，也不会写入
+这是有意的。Windows 版是解压即用的便携程序，不生成 MSI/NSIS，也不会写入
 系统安装目录。配置和日志仍会保存在当前用户的应用数据目录。
 
 ### 为什么找不到 Codex？
