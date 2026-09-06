@@ -1,6 +1,6 @@
 [package]
 name = "codex-proxy-launcher"
-version = "0.3.2"
+version = "0.3.3"
 description = "macOS and Windows Codex/ChatGPT proxy launcher"
 authors = ["yukaige"]
 edition = "2021"
@@ -8,12 +8,15 @@ license = "MIT"
 
 [lib]
 name = "codex_proxy_launcher_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Desktop binaries only need the Rust library. A cdylib exports the entire
+# dependency graph and can exceed the Windows GNU export ordinal limit.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+dunce = "1"
 arboard = { version = "3", default-features = false }
 native-tls = "0.2"
 regex = "1"

@@ -1,0 +1,97 @@
+name: Release desktop applications
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['codex/release-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+            target: x86_64-pc-windows-msvc
+            command: npm run dist:windows
+          - os: macos-latest
+            platform: macos-arm64
+            target: aarch64-apple-darwin
+            command: npm run dist:mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node -e "if(process.env.GITHUB_REF_NAME !== 'v'+require('./package.json').version) process.exit(1)"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: ${{ matrix.command }}
+      - name: Prepare release asset
+        shell: pwsh
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $name = "Codex-Proxy-Launcher-v$version-$env:PLATFORM"
+          if ($env:PLATFORM -eq 'windows-x64') {
+            $source = 'src-tauri/target/release/codex-proxy-launcher.exe'
+            $bytes = [IO.File]::ReadAllBytes((Resolve-Path $source))
+            $offset = [BitConverter]::ToInt32($bytes, 0x3c)
+            if ([BitConverter]::ToUInt16($bytes, $offset + 4) -ne 0x8664 -or
+                [BitConverter]::ToUInt16($bytes, $offset + 24 + 68) -ne 2) {
+              throw 'Expected an x64 Windows GUI executable'
+            }
+            Copy-Item -LiteralPath $source "release-assets/$name.exe"
+          } else {
+            $files = @(Get-ChildItem 'src-tauri/target/aarch64-apple-darwin/release/bundle/dmg' -Filter '*.dmg')
+            if ($files.Count -ne 1) { throw 'Expected exactly one macOS DMG' }
+            & hdiutil verify $files[0].FullName
+            if ($LASTEXITCODE -ne 0) { throw 'DMG verification failed' }
+            Copy-Item -LiteralPath $files[0].FullName "release-assets/$name.dmg"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Create checksums and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release-assets
+          sha256sum *.exe *.dmg > SHA256SUMS.txt
+          cd ..
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --verify-tag --title "Codex 代理启动器 $GITHUB_REF_NAME" \
+            --notes-file RELEASE_NOTES.md

@@ -1,4 +1,6 @@
-use std::fs::{self, File};
+#[cfg(any(target_os = "macos", test))]
+use std::fs;
+use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -64,6 +66,14 @@ pub fn detect(preferred_path: Option<&str>, _home: &Path, logger: &AppLogger) ->
             return inspect(&candidate, logger);
         }
     }
+    for candidate in windows_store_candidates(None, logger) {
+        if candidate.is_file() {
+            let info = inspect(&candidate, logger);
+            if info.executable_path.is_some() {
+                return info;
+            }
+        }
+    }
     logger.log("WARN", "未在默认位置找到 Codex.exe 或 ChatGPT.exe。", None);
     missing(
         AppPlatform::Windows,
@@ -71,8 +81,71 @@ pub fn detect(preferred_path: Option<&str>, _home: &Path, logger: &AppLogger) ->
     )
 }
 
+#[cfg(target_os = "windows")]
+fn windows_store_candidates(selected: Option<&Path>, logger: &AppLogger) -> Vec<PathBuf> {
+    use std::os::windows::process::CommandExt;
+
+    let mut command = Command::new("powershell.exe");
+    command
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            include_str!("detect_windows_apps.ps1"),
+        ])
+        .creation_flags(0x08000000); // CREATE_NO_WINDOW
+    command.env_remove("CODEX_SELECTED_APP_PATH");
+    if let Some(selected) = selected {
+        command.env("CODEX_SELECTED_APP_PATH", selected);
+    }
+    let output = command.output();
+    match output {
+        Ok(output) if output.status.success() => match parse_store_candidates(&output.stdout) {
+            Ok(paths) => paths,
+            Err(error) => {
+                logger.log(
+                    "WARN",
+                    "无法解析 Windows 商店应用检测结果。",
+                    Some(&error.to_string()),
+                );
+                vec![]
+            }
+        },
+        _ => {
+            logger.log("WARN", "无法查询当前用户的 Windows 商店应用。", None);
+            vec![]
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn parse_store_candidates(output: &[u8]) -> Result<Vec<PathBuf>, serde_json::Error> {
+    serde_json::from_slice::<Vec<String>>(output).map(|paths| {
+        paths
+            .into_iter()
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .collect()
+    })
+}
+
 pub fn inspect(path: &Path, logger: &AppLogger) -> CodexAppInfo {
-    let app_path = match fs::canonicalize(path)
+    #[cfg(target_os = "windows")]
+    let resolved = if path
+        .ancestors()
+        .skip(1)
+        .take(2)
+        .any(|root| root.join("AppxManifest.xml").is_file())
+    {
+        windows_store_candidates(Some(path), logger)
+            .into_iter()
+            .next()
+    } else {
+        None
+    };
+    #[cfg(target_os = "windows")]
+    let path = resolved.as_deref().unwrap_or(path);
+    let app_path = match dunce::canonicalize(path)
         .map_err(|error| error.to_string())
         .and_then(|path| validate_app_path(&path))
     {
@@ -249,6 +322,7 @@ impl WindowsMetadata {
 
 #[cfg(target_os = "windows")]
 fn read_windows_metadata(executable_path: &Path) -> Option<WindowsMetadata> {
+    use std::os::windows::process::CommandExt;
     let script = "$v=(Get-Item -LiteralPath $env:CODEX_TARGET_PATH).VersionInfo; \
         [pscustomobject]@{FileVersion=$v.FileVersion;ProductVersion=$v.ProductVersion;\
         ProductName=$v.ProductName;OriginalFilename=$v.OriginalFilename} | \
@@ -256,6 +330,7 @@ fn read_windows_metadata(executable_path: &Path) -> Option<WindowsMetadata> {
     let output = Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .env("CODEX_TARGET_PATH", executable_path)
+        .creation_flags(0x08000000)
         .output()
         .ok()?;
     output
@@ -346,13 +421,15 @@ pub fn find_running_pids(executable_path: &str) -> Vec<u32> {
 
 #[cfg(target_os = "windows")]
 pub fn find_running_pids(executable_path: &str) -> Vec<u32> {
-    let script = "$target=[IO.Path]::GetFullPath($env:CODEX_TARGET_PATH); \
-        Get-Process | ForEach-Object { try { if ([string]::Equals(\
-        [IO.Path]::GetFullPath($_.Path),$target,[StringComparison]::OrdinalIgnoreCase)) \
-        { $_.Id } } catch {} }";
+    use std::os::windows::process::CommandExt;
+    let script = concat!(
+        include_str!("windows_processes.ps1"),
+        "\nGet-CodexProcesses $env:CODEX_TARGET_PATH | ForEach-Object { $_.Id }"
+    );
     let Ok(output) = Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .env("CODEX_TARGET_PATH", executable_path)
+        .creation_flags(0x08000000)
         .output()
     else {
         return vec![];
@@ -405,4 +482,57 @@ fn current_platform() -> AppPlatform {
 #[cfg(target_os = "windows")]
 fn current_platform() -> AppPlatform {
     AppPlatform::Windows
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn store_manifest_overrides_misleading_codex_filename() {
+        let root =
+            std::env::temp_dir().join(format!("codex-store-manifest-{}", std::process::id()));
+        fs::create_dir_all(root.join("app")).unwrap();
+        let helper = root.join("app/Codex.exe");
+        let actual = root.join("app/ChatGPT.exe");
+        fs::write(&helper, b"helper").unwrap();
+        fs::write(&actual, b"desktop").unwrap();
+        fs::write(root.join("AppxManifest.xml"), r#"<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"><Identity Name="OpenAI.Codex"/><Applications><Application Executable="app/ChatGPT.exe"/></Applications></Package>"#).unwrap();
+        let logger = AppLogger::new(&root.join("logs"));
+        let result = windows_store_candidates(Some(&helper), &logger);
+        assert_eq!(result, vec![actual]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn process_detection_matches_extended_and_normal_paths() {
+        let executable = std::env::current_exe().unwrap();
+        let normal = dunce::canonicalize(&executable).unwrap();
+        let extended = fs::canonicalize(&executable).unwrap();
+        for path in [normal, extended] {
+            assert!(find_running_pids(&path.to_string_lossy()).contains(&std::process::id()));
+        }
+    }
+
+    #[test]
+    fn parses_store_paths_with_spaces_and_unicode() {
+        let paths = vec![
+            r"C:\Program Files\WindowsApps\OpenAI.Codex_1_x64__publisher\app\Codex.exe",
+            r"D:\应用\OpenAI.ChatGPT_2\app\ChatGPT.exe",
+        ];
+        let output = serde_json::to_vec(&paths).unwrap();
+        assert_eq!(
+            parse_store_candidates(&output).unwrap(),
+            paths.into_iter().map(PathBuf::from).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn handles_empty_invalid_and_relative_store_results() {
+        assert!(parse_store_candidates(b"[]").unwrap().is_empty());
+        assert!(parse_store_candidates(b"not json").is_err());
+        assert!(parse_store_candidates(br#"["Codex.exe", ""]"#)
+            .unwrap()
+            .is_empty());
+    }
 }

@@ -13,6 +13,8 @@
 
 - 自动检测 macOS 的 `Codex.app` / `ChatGPT.app`；
 - 自动检测 Windows 常见安装目录中的 `Codex.exe` / `ChatGPT.exe`；
+- 自动查询当前用户安装的 Windows 商店版 Codex / ChatGPT，支持随更新变化的安装路径；
+- 优先使用商店安装清单声明的桌面入口（Codex 的入口也可能名为 `ChatGPT.exe`），并兼容 WindowsApps 目录映射下的进程识别；
 - 支持手动选择其他位置的 `.app` 或 `.exe`；
 - 支持 SOCKS5 和 HTTP CONNECT 代理；
 - 启动前检查 TCP 端口、代理握手和 HTTPS 请求；
@@ -148,8 +150,16 @@ Windows 结果位于：
 src-tauri\target\release\codex-proxy-launcher.exe
 ```
 
-发布 GitHub Release 后，仓库中的 Windows Actions 工作流会在
-`windows-latest` 上重新检查源码、编译该 EXE，并直接上传到对应 Release。
+本机使用 Rust GNU 工具链构建时，需要将 MSYS2 的 `mingw64\bin` 加入
+构建终端的 PATH，提供 GCC、dlltool 和 windres。请使用与
+`x86_64-pc-windows-gnu` 匹配的 MinGW64 工具链。
+GNU 构建还需要将输出目录内的 `WebView2Loader.dll` 与 EXE 放在同一目录，
+移动程序时请一起复制。GitHub 发布工作流使用 MSVC 工具链生成单文件 EXE。
+
+推送版本标签（例如 `v0.3.3`）后，GitHub Actions 会分别检查并构建
+Windows x64 EXE 和 macOS Apple Silicon DMG；两个平台都成功后，才创建
+GitHub Release 并上传发布物及 SHA-256 校验文件。
+Windows 工作流仍支持通过手动指定已有标签重新构建和上传 EXE。
 
 ## 配置与日志
 

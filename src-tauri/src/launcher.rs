@@ -341,15 +341,24 @@ fn launch_via_platform(
     );
     let mut command = Command::new(executable);
     command.args(launch_args).envs(environment.iter().cloned());
+    if let Some(directory) = Path::new(executable).parent() {
+        command.current_dir(directory);
+    }
     match command.spawn() {
-        Ok(_) => {
+        Ok(mut child) => {
             let pids = wait_for_pids(executable, Duration::from_secs(5));
             let Some(pid) = pids.first().copied() else {
-                let message = "Windows 启动命令已执行，但没有检测到 Codex 进程。";
-                set_status(state, ProxyLaunchStatus::LaunchFailed, message);
+                let message = match child.try_wait() {
+                    Ok(Some(exit)) => {
+                        format!("Windows 启动的进程已退出（{exit}），没有检测到 Codex 主程序。")
+                    }
+                    _ => "Windows 启动命令已执行，但没有检测到 Codex 进程。".into(),
+                };
+                logger.log("ERROR", &message, Some(executable));
+                set_status(state, ProxyLaunchStatus::LaunchFailed, &message);
                 return failure(
                     ProxyLaunchStatus::LaunchFailed,
-                    message,
+                    &message,
                     Some(executable.into()),
                     Some(launch_args.to_vec()),
                 );
@@ -375,6 +384,7 @@ fn launch_via_platform(
         }
         Err(error) => {
             let message = format!("Codex 启动失败：{error}");
+            logger.log("ERROR", &message, Some(executable));
             set_status(state, ProxyLaunchStatus::LaunchFailed, &message);
             failure(
                 ProxyLaunchStatus::LaunchFailed,
@@ -398,6 +408,7 @@ fn request_graceful_stop(pids: &[u32]) -> bool {
 
 #[cfg(target_os = "windows")]
 fn request_graceful_stop(pids: &[u32]) -> bool {
+    use std::os::windows::process::CommandExt;
     let ids = pids
         .iter()
         .map(u32::to_string)
@@ -410,6 +421,7 @@ fn request_graceful_stop(pids: &[u32]) -> bool {
     Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .env("CODEX_PROCESS_IDS", ids)
+        .creation_flags(0x08000000)
         .status()
         .is_ok_and(|status| status.success())
 }
@@ -598,16 +610,7 @@ pub fn build_launch_script(
         ),
         "    'https://www.gstatic.com/generate_204' | Out-Null".into(),
         String::new(),
-        "  function Get-CodexProcesses {".into(),
-        "    Get-Process | ForEach-Object {".into(),
-        "      try {".into(),
-        "        if ([string]::Equals([IO.Path]::GetFullPath($_.Path), \
-         [IO.Path]::GetFullPath($CodexExecutable), \
-         [StringComparison]::OrdinalIgnoreCase)) { $_ }"
-            .into(),
-        "      } catch {}".into(),
-        "    }".into(),
-        "  }".into(),
+        include_str!("windows_processes.ps1").into(),
         String::new(),
     ];
     if config.close_existing_instance {
@@ -755,7 +758,7 @@ fn wrap_for_terminal(lines: &[String]) -> String {
 
 fn invalid_target(info: &CodexAppInfo) -> Option<String> {
     if !info.installed || info.app_path.is_none() {
-        Some("没有找到 Codex.app，无法启动。".into())
+        Some("没有找到 Codex/ChatGPT 应用，无法启动。".into())
     } else if info.executable_path.is_none() {
         Some(
             info.warning
