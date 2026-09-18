@@ -901,5 +901,7 @@ mod tests {
         assert!(script.contains("$startInfo.UseShellExecute = $false"));
         assert!(script.contains("--proxy-server=socks5://127.0.0.1:7890"));
         assert!(script.contains("$startInfo.EnvironmentVariables['HTTP_PROXY']"));
+        assert!(script.contains("http://127.0.0.1:7890"));
+        assert!(!script.contains("HTTP_PROXY=socks5h://127.0.0.1:7890"));
     }
 }

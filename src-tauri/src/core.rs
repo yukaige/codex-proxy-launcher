@@ -225,7 +225,15 @@ pub fn proxy_environment(config: &CodexProxyConfig) -> Result<Vec<(String, Strin
     if !config.enabled {
         return Ok(Vec::new());
     }
-    let url = app_server_proxy_url(config)?;
+    // Chromium accepts socks5:// directly, but Windows PowerShell/.NET does
+    // not understand socks5h:// in HTTP_PROXY/HTTPS_PROXY. The configured
+    // local mixed proxy port also accepts HTTP CONNECT, so use an HTTP proxy
+    // URL for child processes on Windows while keeping Chromium on SOCKS5.
+    let url = if cfg!(target_os = "windows") && config.protocol == ProxyProtocol::Socks5 {
+        proxy_url(config)?.replacen("socks5:", "http:", 1)
+    } else {
+        app_server_proxy_url(config)?
+    };
     let mut environment = [
         "HTTP_PROXY",
         "HTTPS_PROXY",
@@ -330,7 +338,12 @@ mod tests {
             "socks5h://127.0.0.1:7890"
         );
         let environment = proxy_environment(&config).unwrap();
-        assert!(environment.contains(&("HTTPS_PROXY".into(), "socks5h://127.0.0.1:7890".into())));
+        let expected_proxy = if cfg!(target_os = "windows") {
+            "http://127.0.0.1:7890"
+        } else {
+            "socks5h://127.0.0.1:7890"
+        };
+        assert!(environment.contains(&("HTTPS_PROXY".into(), expected_proxy.into())));
         assert!(environment.contains(&(
             "NO_PROXY".into(),
             concat!(

@@ -1,4 +1,7 @@
-修复 Windows 商店版 Codex / ChatGPT 的自动检测与启动问题。
+修复 Windows 代理环境变量兼容性，并同步修复 Windows 商店版 Codex / ChatGPT 的自动检测与启动问题。
+
+- Windows 子进程使用本地 HTTP 代理格式，避免 PowerShell、uv 和 VS Code 不支持 `socks5h://`。
+- Chromium 仍使用 SOCKS5 代理参数，保持 Codex 网络代理能力。
 
 - 从安装清单读取真正的桌面入口，兼容 Codex 使用 `ChatGPT.exe` 的安装包，并自动纠正已有配置中的入口。
 - 修复 WindowsApps 目录映射、扩展路径导致的运行状态、正常退出和启动结果识别错误。

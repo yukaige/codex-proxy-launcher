@@ -96,8 +96,10 @@ Codex 代理启动器
        Windows: 独立创建 Codex.exe 进程
 ```
 
-SOCKS5 模式下，Chromium 使用 `socks5://`，app-server 环境变量使用
-`socks5h://`，让域名解析也通过 SOCKS 代理完成。
+SOCKS5 模式下，Chromium 使用 `socks5://`。macOS/Linux 的 app-server
+环境变量使用 `socks5h://`，让域名解析也通过 SOCKS 代理完成；Windows
+使用本地混合代理端口支持的 `http://`，避免 PowerShell/.NET 不支持
+`socks5h://` 导致 uv、VS Code 等工具下载失败。
 
 启动器会强制保留本机回环、IPv4 私网与链路本地、IPv6 ULA 与链路本地
 网段作为 Chromium 绕过规则，避免内置浏览器把本地或局域网服务错误地
