@@ -5,7 +5,8 @@ if ($Gh -eq 'gh' -and -not (Get-Command gh -ErrorAction SilentlyContinue)) {
     $portableGh = Join-Path (Get-Location) 'src-tauri/target/build-tools/gh/bin/gh.exe'
     if (Test-Path -LiteralPath $portableGh) { $Gh = $portableGh }
 }
-$version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+$packageJson = [IO.File]::ReadAllText((Join-Path (Get-Location) 'package.json'), [Text.Encoding]::UTF8) | ConvertFrom-Json
+$version = $packageJson.version
 $tag = "v$version"
 $repository = 'yukaige/codex-proxy-launcher'
 $releaseDir = Join-Path (Get-Location) "release/$tag"

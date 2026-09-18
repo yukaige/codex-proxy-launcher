@@ -77,7 +77,8 @@ foreach ($testBinary in $testBinaries) {
 
 & npm.cmd run dist:windows
 if ($LASTEXITCODE -ne 0) { throw 'Windows release build failed' }
-$version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+$packageJson = [IO.File]::ReadAllText((Join-Path $projectRoot 'package.json'), [Text.Encoding]::UTF8) | ConvertFrom-Json
+$version = $packageJson.version
 $releaseDir = Join-Path $projectRoot "release/v$version"
 $packageDir = Join-Path $releaseDir 'windows-x64'
 New-Item -ItemType Directory -Force $packageDir | Out-Null
