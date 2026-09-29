@@ -30,50 +30,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Type checking failed' }
 & cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 if ($LASTEXITCODE -ne 0) { throw 'Rust formatting check failed' }
 
-# Compile once, discover the exact test executables from Cargo, then run them.
-# GNU test harnesses need the same Common Controls v6 manifest as the GUI EXE.
-$messages = & cargo test --manifest-path src-tauri/Cargo.toml --no-run --message-format=json
-if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed' }
-$testBinaries = @($messages | ForEach-Object {
-    $item = $_ | ConvertFrom-Json
-    if ($item.reason -eq 'compiler-artifact' -and $item.profile.test -and $item.executable) {
-        $item.executable
-    }
-})
-if (-not $testBinaries.Count) { throw 'Cargo returned no test executables' }
-if ($gnu) {
-    if (-not ('CodexTestManifest' -as [type])) {
-        Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class CodexTestManifest {
-    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-    public static extern IntPtr BeginUpdateResourceW(string path, bool delete);
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern bool UpdateResourceW(IntPtr handle, IntPtr type, IntPtr name, ushort language, byte[] data, uint size);
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern bool EndUpdateResourceW(IntPtr handle, bool discard);
-}
-'@
-    }
-    $manifest = '<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"><dependency><dependentAssembly><assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*" /></dependentAssembly></dependency></assembly>'
-    $bytes = [Text.Encoding]::UTF8.GetBytes($manifest)
-    foreach ($testBinary in $testBinaries) {
-        $handle = [CodexTestManifest]::BeginUpdateResourceW($testBinary, $false)
-        if ($handle -eq [IntPtr]::Zero) { throw "Cannot open test resource: $testBinary" }
-        if (-not [CodexTestManifest]::UpdateResourceW($handle, [IntPtr]24, [IntPtr]1, 0, $bytes, $bytes.Length)) {
-            [CodexTestManifest]::EndUpdateResourceW($handle, $true) | Out-Null
-            throw "Cannot write test manifest: $testBinary"
-        }
-        if (-not [CodexTestManifest]::EndUpdateResourceW($handle, $false)) { throw 'Cannot save test manifest' }
-    }
-}
-foreach ($testBinary in $testBinaries) {
-    # Tauri places the GNU WebView2 loader next to the debug application.
-    $env:PATH = (Split-Path -Parent (Split-Path -Parent $testBinary)) + ';' + $env:PATH
-    & $testBinary
-    if ($LASTEXITCODE -ne 0) { throw "Tests failed: $testBinary" }
-}
+& npm.cmd test
+if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 
 & npm.cmd run dist:windows
 if ($LASTEXITCODE -ne 0) { throw 'Windows release build failed' }

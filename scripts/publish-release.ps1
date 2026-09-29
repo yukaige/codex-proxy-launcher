@@ -10,10 +10,9 @@ $version = $packageJson.version
 $tag = "v$version"
 $repository = 'yukaige/codex-proxy-launcher'
 $releaseDir = Join-Path (Get-Location) "release/$tag"
-$assets = @(
-    (Join-Path $releaseDir "Codex-Proxy-Launcher-$tag-windows-x64.zip"),
-    (Join-Path $releaseDir "Codex-Proxy-Launcher-$tag-macos-arm64.dmg")
-)
+$assets = @((Join-Path $releaseDir "Codex-Proxy-Launcher-$tag-windows-x64.zip"))
+$macAsset = Join-Path $releaseDir "Codex-Proxy-Launcher-$tag-macos-arm64.dmg"
+if (Test-Path -LiteralPath $macAsset -PathType Leaf) { $assets += $macAsset }
 foreach ($asset in $assets) {
     if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "Missing local build: $asset" }
 }

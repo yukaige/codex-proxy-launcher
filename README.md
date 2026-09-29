@@ -14,6 +14,7 @@
 - 自动检测 macOS 的 `Codex.app` / `ChatGPT.app`；
 - 自动检测 Windows 常见安装目录中的 `Codex.exe` / `ChatGPT.exe`；
 - 自动查询当前用户安装的 Windows 商店版 Codex / ChatGPT，支持随更新变化的安装路径；
+- Windows 商店版可通过系统应用入口普通启动；由于包激活不能传入本次启动所需的 app-server 代理环境变量，代理启动会明确提示暂不支持；
 - 优先使用商店安装清单声明的桌面入口（Codex 的入口也可能名为 `ChatGPT.exe`），并兼容 WindowsApps 目录映射下的进程识别；
 - 支持手动选择其他位置的 `.app` 或 `.exe`；
 - 支持 SOCKS5 和 HTTP CONNECT 代理；

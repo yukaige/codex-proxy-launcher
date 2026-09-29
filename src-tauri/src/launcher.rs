@@ -50,6 +50,21 @@ pub fn launch_with_proxy(
     if !config.enabled {
         return launch_directly(info, state, logger);
     }
+    #[cfg(target_os = "windows")]
+    if info
+        .executable_path
+        .as_deref()
+        .is_some_and(is_windows_packaged_app)
+    {
+        let message = "检测到 Windows 商店版 Codex/ChatGPT。该应用必须由 Windows 按程序包标识激活，而此启动方式无法传入 app-server 所需的代理环境变量。目前无法对该安装包完成代理启动；普通启动仍可使用。";
+        set_status(state, ProxyLaunchStatus::LaunchFailed, message);
+        return failure(
+            ProxyLaunchStatus::LaunchFailed,
+            message,
+            info.executable_path.clone(),
+            None,
+        );
+    }
     let proxy_test = proxy::test(config, logger);
     if !proxy_test.success {
         let message = format!("代理不可用，未启动 Codex：{}", proxy_test.message);
@@ -318,6 +333,86 @@ fn launch_via_platform(
 }
 
 #[cfg(target_os = "windows")]
+fn is_windows_packaged_app(executable: &str) -> bool {
+    Path::new(executable)
+        .ancestors()
+        .skip(1)
+        .take(2)
+        .any(|root| root.join("AppxManifest.xml").is_file())
+}
+
+#[cfg(target_os = "windows")]
+fn launch_windows_packaged_app(
+    executable: &str,
+    state: &Mutex<LauncherState>,
+    logger: &AppLogger,
+) -> LaunchResult {
+    use std::os::windows::process::CommandExt;
+
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            include_str!("activate_windows_app.ps1"),
+        ])
+        .env("CODEX_SELECTED_APP_PATH", executable)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            if let Some(pid) = wait_for_pids(executable, Duration::from_secs(5))
+                .first()
+                .copied()
+            {
+                return LaunchResult {
+                    success: true,
+                    status: ProxyLaunchStatus::NotStarted,
+                    pid: Some(pid),
+                    message: "Windows 商店版应用已普通启动。".into(),
+                    executable_path: Some(executable.into()),
+                    args: Some(vec![]),
+                    proxy_args_passed: false,
+                    traffic_verified: false,
+                };
+            }
+            let message = "Windows 已接收商店应用启动请求，但没有检测到主程序。";
+            logger.log("ERROR", message, Some(executable));
+            set_status(state, ProxyLaunchStatus::LaunchFailed, message);
+            failure(
+                ProxyLaunchStatus::LaunchFailed,
+                message,
+                Some(executable.into()),
+                None,
+            )
+        }
+        Ok(output) => {
+            let detail = String::from_utf8_lossy(&output.stderr);
+            let message = format!("Windows 商店应用激活失败：{}", detail.trim());
+            logger.log("ERROR", &message, Some(executable));
+            set_status(state, ProxyLaunchStatus::LaunchFailed, &message);
+            failure(
+                ProxyLaunchStatus::LaunchFailed,
+                &message,
+                Some(executable.into()),
+                None,
+            )
+        }
+        Err(error) => {
+            let message = format!("Windows 商店应用激活失败：{error}");
+            logger.log("ERROR", &message, Some(executable));
+            set_status(state, ProxyLaunchStatus::LaunchFailed, &message);
+            failure(
+                ProxyLaunchStatus::LaunchFailed,
+                &message,
+                Some(executable.into()),
+                None,
+            )
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn launch_via_platform(
     info: &CodexAppInfo,
     launch_args: &[String],
@@ -334,6 +429,9 @@ fn launch_via_platform(
             None,
         );
     };
+    if is_windows_packaged_app(executable) {
+        return launch_windows_packaged_app(executable, state, logger);
+    }
     logger.log(
         "INFO",
         "准备通过 Windows 创建独立 Codex 进程。",
@@ -582,6 +680,12 @@ pub fn build_launch_script(
     let selected = validate_app_path(Path::new(app_path))?;
     if !selected.eq(Path::new(executable)) {
         return Err("Codex 可执行文件路径与所选应用不匹配。".into());
+    }
+    if is_windows_packaged_app(executable) {
+        return Err(
+            "Windows 商店版应用无法通过启动脚本传入 app-server 代理环境变量，目前不支持代理启动。"
+                .into(),
+        );
     }
 
     let net_log_path = log_directory.join("codex-net-log.json");

@@ -1,20 +1,11 @@
-修复 Windows 代理环境变量兼容性，并同步修复 Windows 商店版 Codex / ChatGPT 的自动检测与启动问题。
+修复 Windows 商店版 Codex / ChatGPT 的启动报错，并修复 Windows GNU 测试程序缺少清单的问题。
 
-- Windows 子进程使用本地 HTTP 代理格式，避免 PowerShell、uv 和 VS Code 不支持 `socks5h://`。
-- Chromium 仍使用 SOCKS5 代理参数，保持 Codex 网络代理能力。
+- 商店版应用通过 Windows 注册的应用入口普通启动，避免“该进程没有程序包标识符”错误。
+- 商店版代理启动会明确提示当前无法传入 app-server 所需的代理环境变量，避免误报代理已生效。
+- Windows GNU 测试程序直接包含 Common Controls v6 清单；`npm test` 可直接运行。
+- 发布脚本不再在测试结束后修改测试程序。
 
-- 从安装清单读取真正的桌面入口，兼容 Codex 使用 `ChatGPT.exe` 的安装包，并自动纠正已有配置中的入口。
-- 修复 WindowsApps 目录映射、扩展路径导致的运行状态、正常退出和启动结果识别错误。
-- 启动时设置应用工作目录；失败时记录退出状态，便于排查。
-- 同步修复复制的 PowerShell 启动脚本。
+Windows x64：下载 `windows-x64.zip`，解压后运行 EXE；请保留同目录的 `WebView2Loader.dll`。
+`SHA256SUMS.txt` 提供下载文件的 SHA-256 校验值。
 
-下载：
-
-- **Windows x64**：下载 `windows-x64.zip`，解压后运行 EXE；请保留同目录的 `WebView2Loader.dll`，无需安装器。
-- **macOS Apple Silicon**：下载 `macos-arm64.dmg`，打开后将应用拖到 Applications。
-- `SHA256SUMS.txt` 提供发布文件的 SHA-256 校验值。
-
-仍需安装 Codex / ChatGPT 桌面客户端并运行本机 SOCKS5 或 HTTP 代理。
-发布物没有商业代码签名；macOS 版本未公证。
-Windows 和 macOS 发布物分别在自有 Windows 电脑和 Apple Silicon Mac 上编译，GitHub 仅用于托管下载。
-本次修复通过了回归测试和平台构建检查；尚未完成真实客户端的代理重启及业务流量端到端验证。
+发布物没有商业代码签名。Windows 商店版的代理启动仍受系统包激活接口限制。
