@@ -30,4 +30,47 @@ if (-not $application) { throw '所选文件不是程序包声明的应用入口
 $package = Get-AppxPackage -Name $name | Select-Object -First 1
 if (-not $package) { throw '当前用户没有注册该应用程序包。' }
 $appId = '{0}!{1}' -f $package.PackageFamilyName, $application.Id
-Start-Process -FilePath 'explorer.exe' -ArgumentList ('shell:AppsFolder\' + $appId)
+
+# Package activation preserves package identity and accepts Chromium switches.
+# It does not accept per-process environment variables; the launcher stages
+# app-server variables in Codex's .env only while app-server starts.
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+[ComImport, Guid("2e941141-7f97-4756-ba1d-9decde894a3d"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IApplicationActivationManager {
+    [PreserveSig]
+    int ActivateApplication([MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+        [MarshalAs(UnmanagedType.LPWStr)] string arguments, uint options, out uint processId);
+    [PreserveSig]
+    int ActivateForFile([MarshalAs(UnmanagedType.LPWStr)] string appUserModelId, IntPtr itemArray,
+        [MarshalAs(UnmanagedType.LPWStr)] string verb, out uint processId);
+    [PreserveSig]
+    int ActivateForProtocol([MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+        IntPtr itemArray, out uint processId);
+}
+
+[ComImport, Guid("45BA127D-10A8-46EA-8AB7-56EA9078943C")]
+public class ApplicationActivationManager : IApplicationActivationManager {
+    [PreserveSig]
+    [MethodImpl(MethodImplOptions.InternalCall, MethodCodeType = MethodCodeType.Runtime)]
+    public extern int ActivateApplication(string appUserModelId, string arguments,
+        uint options, out uint processId);
+    [PreserveSig]
+    [MethodImpl(MethodImplOptions.InternalCall, MethodCodeType = MethodCodeType.Runtime)]
+    public extern int ActivateForFile(string appUserModelId, IntPtr itemArray,
+        string verb, out uint processId);
+    [PreserveSig]
+    [MethodImpl(MethodImplOptions.InternalCall, MethodCodeType = MethodCodeType.Runtime)]
+    public extern int ActivateForProtocol(string appUserModelId, IntPtr itemArray,
+        out uint processId);
+}
+'@
+$manager = [IApplicationActivationManager][ApplicationActivationManager]::new()
+$activatedPid = [uint32]0
+$arguments = [string]$env:CODEX_APP_ARGUMENTS
+$hresult = $manager.ActivateApplication($appId, $arguments, 0, [ref]$activatedPid)
+if ($hresult -lt 0) { [Runtime.InteropServices.Marshal]::ThrowExceptionForHR($hresult) }
+Write-Output $activatedPid

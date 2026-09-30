@@ -119,6 +119,7 @@ pub async fn launch_codex(
         Ok(launcher::launch_with_proxy(
             &info,
             &config,
+            &state.home,
             &state.launcher,
             &state.logger,
         ))
@@ -202,6 +203,10 @@ pub fn run() {
         .setup(|app| {
             let app_data = app.path().app_data_dir()?;
             let home = app.path().home_dir()?;
+            #[cfg(target_os = "windows")]
+            if let Err(error) = crate::windows_dotenv::recover_interrupted_launch(&home) {
+                eprintln!("无法恢复上次 Codex 临时代理配置：{error}");
+            }
             let log_directory = platform_log_directory(app, &home)?;
             app.manage(AppState {
                 store: SettingsStore::new(&app_data),

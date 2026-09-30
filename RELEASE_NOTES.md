@@ -1,11 +1,10 @@
-修复 Windows 商店版 Codex / ChatGPT 的启动报错，并修复 Windows GNU 测试程序缺少清单的问题。
+增加 Windows 商店版 Codex / ChatGPT 的启动器单应用代理启动。
 
-- 商店版应用通过 Windows 注册的应用入口普通启动，避免“该进程没有程序包标识符”错误。
-- 商店版代理启动会明确提示当前无法传入 app-server 所需的代理环境变量，避免误报代理已生效。
-- Windows GNU 测试程序直接包含 Common Controls v6 清单；`npm test` 可直接运行。
-- 发布脚本不再在测试结束后修改测试程序。
+- 通过 Windows 包激活接口传入 Chromium 代理参数，保留应用包身份。
+- 启动器临时写入 Codex `.env` 供 app-server 读取，检测到 app-server 启动后恢复原文件；启动中断时可在下次打开启动器时恢复。
+- 无需系统代理或 TUN。商店版请使用启动器按钮，复制脚本不支持该流程。
 
 Windows x64：下载 `windows-x64.zip`，解压后运行 EXE；请保留同目录的 `WebView2Loader.dll`。
 `SHA256SUMS.txt` 提供下载文件的 SHA-256 校验值。
 
-发布物没有商业代码签名。Windows 商店版的代理启动仍受系统包激活接口限制。
+发布物没有商业代码签名。启动期间新开的 Codex CLI 可能读到短暂存在的代理值；app-server 后续自行重启时可能需要重新通过启动器启动。请结合代理连接日志验证实际流量。

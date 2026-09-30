@@ -1,6 +1,6 @@
 [package]
 name = "codex-proxy-launcher"
-version = "0.3.5"
+version = "0.3.6"
 description = "macOS and Windows Codex/ChatGPT proxy launcher"
 authors = ["yukaige"]
 edition = "2021"

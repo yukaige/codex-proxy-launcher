@@ -14,7 +14,7 @@
 - 自动检测 macOS 的 `Codex.app` / `ChatGPT.app`；
 - 自动检测 Windows 常见安装目录中的 `Codex.exe` / `ChatGPT.exe`；
 - 自动查询当前用户安装的 Windows 商店版 Codex / ChatGPT，支持随更新变化的安装路径；
-- Windows 商店版可通过系统应用入口普通启动；由于包激活不能传入本次启动所需的 app-server 代理环境变量，代理启动会明确提示暂不支持；
+- Windows 商店版通过系统包激活接口携带 Chromium 参数启动；启动器短暂写入并恢复 `~/.codex/.env`，供 app-server 在启动时读取代理环境变量；
 - 优先使用商店安装清单声明的桌面入口（Codex 的入口也可能名为 `ChatGPT.exe`），并兼容 WindowsApps 目录映射下的进程识别；
 - 支持手动选择其他位置的 `.app` 或 `.exe`；
 - 支持 SOCKS5 和 HTTP CONNECT 代理；
@@ -65,7 +65,8 @@ SmartScreen 或 macOS Gatekeeper 可能显示未知发布者提示；请只从�
 
 “复制启动脚本”会根据当前系统生成可直接粘贴运行的脚本：macOS 使用
 隔离的 zsh 子进程，Windows 使用 PowerShell 代码块。脚本不会修改当前
-终端的持久配置。
+终端的持久配置。Windows 商店版须使用启动器按钮；复制脚本不支持其
+临时 `.env` 备份与恢复流程。
 
 ## 三种验证状态
 
@@ -94,7 +95,8 @@ Codex 代理启动器
   │
   └─ 平台启动
        macOS: LaunchServices /usr/bin/open
-       Windows: 独立创建 Codex.exe 进程
+       Windows 普通版: 独立创建 Codex.exe 进程
+       Windows 商店版: 包激活接口 + 短暂的 ~/.codex/.env
 ```
 
 SOCKS5 模式下，Chromium 使用 `socks5://`。macOS/Linux 的 app-server
@@ -201,6 +203,7 @@ net-log 可能包含访问域名和连接信息，不受启动器的日志脱敏
 - 不修改、不替换、不重签名 Codex/ChatGPT；
 - 不注入动态库；
 - 不安装系统证书或修改系统代理；
+- Windows 商店版启动时短暂修改并恢复 Codex 的 `.env`；
 - 不读取 Codex 登录凭据、Cookie 或对话内容；
 - 不强制结束已有 Codex 进程；
 - 在 Rust 后端重新校验来自界面的命令输入；
@@ -215,6 +218,8 @@ net-log 可能包含访问域名和连接信息，不受启动器的日志脱敏
 - 必须退出已有 Codex 实例后重新启动，代理参数才能可靠生效；
 - “验证实际流量”依赖启用 Chromium net-log；
 - Codex/ChatGPT 后续版本可能调整安装位置、运行时或启动参数。
+- Windows 商店版 app-server 若在启动后自行重启，可能不再继承本次临时代理设置；请重新通过启动器启动并验证流量。
+- 在 Windows 商店版启动期间新开的 Codex CLI 也可能读到临时 `.env` 代理值；启动器检测到 app-server 后会恢复原文件。
 
 ## 常见问题
 

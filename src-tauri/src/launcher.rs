@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::process::Command;
 use std::sync::Mutex;
+#[cfg(target_os = "windows")]
+use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -40,6 +42,7 @@ impl Default for LauncherState {
 pub fn launch_with_proxy(
     info: &CodexAppInfo,
     config: &CodexProxyConfig,
+    home: &Path,
     state: &Mutex<LauncherState>,
     logger: &AppLogger,
 ) -> LaunchResult {
@@ -50,21 +53,8 @@ pub fn launch_with_proxy(
     if !config.enabled {
         return launch_directly(info, state, logger);
     }
-    #[cfg(target_os = "windows")]
-    if info
-        .executable_path
-        .as_deref()
-        .is_some_and(is_windows_packaged_app)
-    {
-        let message = "检测到 Windows 商店版 Codex/ChatGPT。该应用必须由 Windows 按程序包标识激活，而此启动方式无法传入 app-server 所需的代理环境变量。目前无法对该安装包完成代理启动；普通启动仍可使用。";
-        set_status(state, ProxyLaunchStatus::LaunchFailed, message);
-        return failure(
-            ProxyLaunchStatus::LaunchFailed,
-            message,
-            info.executable_path.clone(),
-            None,
-        );
-    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = home;
     let proxy_test = proxy::test(config, logger);
     if !proxy_test.success {
         let message = format!("代理不可用，未启动 Codex：{}", proxy_test.message);
@@ -134,6 +124,46 @@ pub fn launch_with_proxy(
     if let Ok(mut value) = state.lock() {
         value.last_proxy_launch_started_at = Some(SystemTime::now());
     }
+    #[cfg(target_os = "windows")]
+    let result = if info
+        .executable_path
+        .as_deref()
+        .is_some_and(is_windows_packaged_app)
+    {
+        static PACKAGED_LAUNCH: OnceLock<Mutex<()>> = OnceLock::new();
+        let _launch_guard = match PACKAGED_LAUNCH.get_or_init(|| Mutex::new(())).lock() {
+            Ok(guard) => guard,
+            Err(error) => error.into_inner(),
+        };
+        let executable = info.executable_path.as_deref().unwrap();
+        let mut overlay = match crate::windows_dotenv::DotenvOverlay::stage(home, &environment) {
+            Ok(value) => value,
+            Err(message) => {
+                set_status(state, ProxyLaunchStatus::LaunchFailed, &message);
+                return failure(
+                    ProxyLaunchStatus::LaunchFailed,
+                    &message,
+                    Some(executable.into()),
+                    None,
+                );
+            }
+        };
+        let result = launch_windows_packaged_app(executable, &args, state, logger);
+        let restore = overlay.restore();
+        if let Err(message) = restore {
+            set_status(state, ProxyLaunchStatus::LaunchFailed, &message);
+            return failure(
+                ProxyLaunchStatus::LaunchFailed,
+                &message,
+                Some(executable.into()),
+                Some(args),
+            );
+        }
+        result
+    } else {
+        launch_via_platform(info, &args, &environment, true, state, logger)
+    };
+    #[cfg(not(target_os = "windows"))]
     let result = launch_via_platform(info, &args, &environment, true, state, logger);
     if result.success {
         let message =
@@ -344,6 +374,7 @@ fn is_windows_packaged_app(executable: &str) -> bool {
 #[cfg(target_os = "windows")]
 fn launch_windows_packaged_app(
     executable: &str,
+    launch_args: &[String],
     state: &Mutex<LauncherState>,
     logger: &AppLogger,
 ) -> LaunchResult {
@@ -357,22 +388,60 @@ fn launch_windows_packaged_app(
             include_str!("activate_windows_app.ps1"),
         ])
         .env("CODEX_SELECTED_APP_PATH", executable)
+        .env(
+            "CODEX_APP_ARGUMENTS",
+            launch_args
+                .iter()
+                .map(|arg| windows_argument_quote(arg))
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .output();
     match output {
         Ok(output) if output.status.success() => {
-            if let Some(pid) = wait_for_pids(executable, Duration::from_secs(5))
-                .first()
-                .copied()
-            {
+            let activated_pid = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .find_map(|line| line.trim().parse::<u32>().ok());
+            if let Some(pid) = activated_pid.filter(|pid| {
+                wait_until(Duration::from_secs(10), || {
+                    find_running_pids(executable).contains(pid)
+                })
+            }) {
+                if !launch_args.is_empty()
+                    && !wait_for_windows_app_server(pid, Duration::from_secs(20))
+                {
+                    let message = "商店版 Codex 主程序已启动，但未检测到 app-server；临时代理配置已恢复，无法确认后台代理生效。";
+                    set_status(state, ProxyLaunchStatus::LaunchFailed, message);
+                    return failure(
+                        ProxyLaunchStatus::LaunchFailed,
+                        message,
+                        Some(executable.into()),
+                        Some(launch_args.to_vec()),
+                    );
+                }
+                if !launch_args.is_empty() {
+                    // The process can become visible before Codex's entry point
+                    // has finished reading .env.
+                    thread::sleep(Duration::from_secs(2));
+                }
                 return LaunchResult {
                     success: true,
-                    status: ProxyLaunchStatus::NotStarted,
+                    status: if launch_args.is_empty() {
+                        ProxyLaunchStatus::NotStarted
+                    } else {
+                        ProxyLaunchStatus::LaunchedWithProxyArgs
+                    },
                     pid: Some(pid),
-                    message: "Windows 商店版应用已普通启动。".into(),
+                    message: if launch_args.is_empty() {
+                        "Windows 商店版应用已普通启动。"
+                    } else {
+                        "Windows 商店版 Codex 已收到 Chromium 代理参数，app-server 已启动。"
+                    }
+                    .into(),
                     executable_path: Some(executable.into()),
-                    args: Some(vec![]),
-                    proxy_args_passed: false,
+                    args: Some(launch_args.to_vec()),
+                    proxy_args_passed: !launch_args.is_empty(),
                     traffic_verified: false,
                 };
             }
@@ -413,6 +482,21 @@ fn launch_windows_packaged_app(
 }
 
 #[cfg(target_os = "windows")]
+fn wait_for_windows_app_server(main_pid: u32, timeout: Duration) -> bool {
+    use std::os::windows::process::CommandExt;
+
+    let script = "$parentId=[uint32]$env:CODEX_MAIN_PID; Get-CimInstance Win32_Process -Filter \"name='codex.exe'\" | Where-Object { $_.ParentProcessId -eq $parentId -and $_.CommandLine -match '(^|\\s)app-server(\\s|$)' } | Select-Object -First 1 -ExpandProperty ProcessId";
+    wait_until(timeout, || {
+        Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .env("CODEX_MAIN_PID", main_pid.to_string())
+            .creation_flags(0x08000000)
+            .output()
+            .is_ok_and(|output| output.status.success() && !output.stdout.is_empty())
+    })
+}
+
+#[cfg(target_os = "windows")]
 fn launch_via_platform(
     info: &CodexAppInfo,
     launch_args: &[String],
@@ -430,7 +514,7 @@ fn launch_via_platform(
         );
     };
     if is_windows_packaged_app(executable) {
-        return launch_windows_packaged_app(executable, state, logger);
+        return launch_windows_packaged_app(executable, launch_args, state, logger);
     }
     logger.log(
         "INFO",
@@ -683,7 +767,7 @@ pub fn build_launch_script(
     }
     if is_windows_packaged_app(executable) {
         return Err(
-            "Windows 商店版应用无法通过启动脚本传入 app-server 代理环境变量，目前不支持代理启动。"
+            "Windows 商店版请使用启动器中的“启动 Codex”按钮；复制脚本无法安全地临时备份并恢复 Codex .env。"
                 .into(),
         );
     }
